@@ -1,5 +1,6 @@
 import numpy as np
 from confettii.ncc_helper import get_ncc_point_to_whole,crop_2d_image
+from confettii.entropy_helper import entropy_filter
 from feature_extract.feature_extractor import get_feature_list, get_encoder
 from PIL import Image
 import pickle
