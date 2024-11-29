@@ -1,6 +1,11 @@
 new_t11
 __pycache__
 
+*.err
+*.out
+*.pkl
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

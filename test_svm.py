@@ -20,7 +20,7 @@ mask_plane_parameters = config["mask_plane_parameters"]
 
 roi_layer=viewer.add_image(roi,name='roi')
 mask_layer=viewer.add_labels(mask,name='mask')
-points_layer=viewer.add_points(data=[],name='points',size=2,face_color='white',ndim=3)
+points_layer=viewer.add_points(data=[],name='points',size=2,face_color='white',ndim=3,blending='additive')
 
 
 

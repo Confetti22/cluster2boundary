@@ -21,81 +21,6 @@ from napari.utils.events import Event
 from napari_threedee.annotators import PointAnnotator
 from config.constants import config
 
-
-
-# Load configuration values
-img_pth = config["image_paths"]["img_pth"]
-mask_pth = config["image_paths"]["mask_pth"]
-level = config["level"]
-roi_size = config["roi_size"]
-zoom_factor = config["zoom_factor"]
-roi_plane_parameters = config["roi_plane_parameters"]
-mask_plane_parameters = config["mask_plane_parameters"]
-
-# Read IMS image and TIFF mask
-ims_vol = Ims_Image(img_pth, channel=3)
-lr_mask = tif.imread(mask_pth)
-hr_vol_shape = ims_vol.info[level]['data_shape']
-
-
-
-# give indexes in hr_vol and get roi in hr_vol 
-# compute correspond indexes in mask and get lr_mask
-# zoom lr_mask to hr_mask
-#add hr_mask and roi_vol to napari
-
-
-###### prepare data #######
-##########################
-
-### whether ims, mask reside on local or cluster, the speed is same
-
-
-###### init main napari viewer ########
-##################################
-svc_predictor = None
-annotator = None
-#main viewer
-viewer = napari.Viewer(ndisplay=3)
-dummy_data=np.zeros(shape=roi_size,dtype=int)
-viewer.add_image(dummy_data,name='roi')
-
-####### init sub viewer #####
-dock_widget=MultipleViewerWidget(viewer)
-viewer.window.add_dock_widget(dock_widget,name="sub_viewer")
-
-# adjust size of main_window
-origin_geo=viewer.window.geometry()
-viewer.window.set_geometry(origin_geo[0],origin_geo[1],origin_geo[2],origin_geo[3])
-
-#sub_viewer, can be treated as a viewer
-sub_viewer=viewer.window._dock_widgets['sub_viewer'].widget().viewer_model1
-
-
-
-#AttributeError: 'ViewerModel' object has no attribute 'window'
-# sub_geo=sub_viewer.window.geometry()
-
-
-# It's a pointLayer in napari
-# right click on plane in 3d to change point type(defined by color)
-# Once add/remove point, move point, change point color --> 
-# --recompute annotation map
-# --boundary finding using svm
-# --refresh segmentation result to viewer
-
-
-
-#allen color_map map many similar adjacent region into one color, not useful in refined brain region seg
-# import json
-# with open('config/allen_colormap.json','r') as f:
-#     allen_cmap=json.load(f)
-
-# allen_cmap[None]=[0,0,0,0]
-# allen_cmap = {k: v + [1] for k, v in allen_cmap.items()}
-# allen_cmap = {k: [v[0]/255, v[1]/255, v[2]/255, v[3]] for k, v in allen_cmap.items()}
-
-
 def get_hr_mask(lr_mask,indexs,roi_size,scale):
     """
     roi is defined via indexs +roi_size
@@ -133,8 +58,6 @@ def get_aux_c_slice(ims_vol,idx,roi_size):
     return z_slice
 
 
-
-
 def add_data_in_sub_viewer(ims_vol,indexs,roi_size):
     aux_z_slice=get_aux_c_slice(ims_vol,indexs,roi_size) 
 
@@ -162,20 +85,25 @@ def entropy_filter(thres=1.8):
         return entropy>thres
     return _filter
 
-
-
-
-
-
 def adjust_camera_viewer(zomm_factor=6):
     viewer.camera.zoom=zoom_factor
-
 
 
 def on_delete():
     print("!!!!!!!!!!!!svc_predictor has been garbage collected.!!!!!!!!!!!!")
 
 # Create a weak reference to monitor the object
+def _on_refresh_roi2(new_mask,new_roi):
+    viewer.layers['roi'].data=new_roi
+    viewer.layers['roi'].contrast_limits=(0,np.percentile(new_roi,99)*1.5)
+    viewer.layers['mask'].data=new_mask
+
+    viewer.layers['roi_plane'].data=new_roi
+    viewer.layers['mask_plane'].data=new_mask
+    viewer.layers['points'].data=[]
+
+    viewer.layers.selection=[roi_plane_layer]
+
 
 def _on_refesh_roi(new_mask,new_roi):
 
@@ -217,6 +145,120 @@ def _on_refesh_roi(new_mask,new_roi):
     weakref.finalize(svc_predictor, on_delete)
 
 
+# Load configuration values
+img_pth = config["image_paths"]["img_pth"]
+mask_pth = config["image_paths"]["mask_pth"]
+level = config["level"]
+roi_size = config["roi_size"]
+zoom_factor = config["zoom_factor"]
+roi_plane_parameters = config["roi_plane_parameters"]
+mask_plane_parameters = config["mask_plane_parameters"]
+
+# Read IMS image and TIFF mask
+ims_vol = Ims_Image(img_pth, channel=3)
+lr_mask = tif.imread(mask_pth)
+hr_vol_shape = ims_vol.info[level]['data_shape']
+
+
+
+# give indexes in hr_vol and get roi in hr_vol 
+# compute correspond indexes in mask and get lr_mask
+# zoom lr_mask to hr_mask
+#add hr_mask and roi_vol to napari
+
+
+###### prepare data #######
+##########################
+
+### whether ims, mask reside on local or cluster, the speed is same
+
+
+###### init main napari viewer ########
+##################################
+svc_predictor = None
+annotator = None
+#main viewer
+viewer = napari.Viewer(ndisplay=3)
+####### init sub viewer #####
+
+dock_widget=MultipleViewerWidget(viewer)
+viewer.window.add_dock_widget(dock_widget,name="sub_viewer")
+
+# adjust size of main_window
+origin_geo=viewer.window.geometry()
+viewer.window.set_geometry(origin_geo[0],origin_geo[1],origin_geo[2],origin_geo[3])
+
+#sub_viewer, can be treated as a viewer
+sub_viewer=viewer.window._dock_widgets['sub_viewer'].widget().viewer_model1
+
+roi,indexs=ims_vol.get_random_roi(filter=entropy_filter(thres=1.8),roi_size=roi_size,level=0)
+
+print(f"roi start at {indexs} with shape{roi_size}")
+
+mask=get_hr_mask(lr_mask,indexs,roi_size,zoom_factor)
+
+# auxiliary z-slice(center at roi) to better known the loaction of roi
+add_data_in_sub_viewer(ims_vol,indexs,roi_size)
+
+mask_classes=np.unique(mask)
+print(f"mask id include :{mask_classes}")
+
+roi_layer=viewer.add_image(roi,contrast_limits=(0,np.percentile(roi,99)*1.5),name='roi',visible=False)
+
+#Todo investigate the true cause of runtime error 
+# set visible to False of label_layer to Fasle will cause runtime error
+# but user will need to unvisible the currently unwanted layer by hand
+# mask_layer=viewer.add_labels(new_mask,name='mask',visible=False)
+mask_layer=viewer.add_labels(mask,name='mask')
+
+roi_plane_layer=viewer.add_image(roi, name='roi_plane', depiction='plane',rendering='mip',  blending='additive', opacity=0.6, plane=roi_plane_parameters)
+mask_plane_layer=viewer.add_labels(mask, name='mask_plane', depiction='plane',blending='additive', opacity=0.6, plane=mask_plane_parameters,)
+
+points_layer = viewer.add_points(data=[],name='points',size=2,face_color='cornflowerblue',ndim=3)
+
+link_pos_of_plane_layers([roi_plane_layer,mask_plane_layer])
+viewer.layers.selection=[roi_plane_layer]
+
+# create the point annotator
+annotator = PointAnnotator(
+    viewer=viewer,
+    image_layer=roi_plane_layer,
+    mask_layer=mask_plane_layer,
+    points_layer=points_layer,
+    enabled=True,
+    config=config
+)
+
+svc_predictor=SvcWidget(viewer,sub_viewer,points_layer,mask_layer,config=config)
+
+# Create a weak reference to monitor the object
+weakref.finalize(svc_predictor, on_delete)
+
+#AttributeError: 'ViewerModel' object has no attribute 'window'
+# sub_geo=sub_viewer.window.geometry()
+
+
+# It's a pointLayer in napari
+# right click on plane in 3d to change point type(defined by color)
+# Once add/remove point, move point, change point color --> 
+# --recompute annotation map
+# --boundary finding using svm
+# --refresh segmentation result to viewer
+
+
+
+#allen color_map map many similar adjacent region into one color, not useful in refined brain region seg
+# import json
+# with open('config/allen_colormap.json','r') as f:
+#     allen_cmap=json.load(f)
+
+# allen_cmap[None]=[0,0,0,0]
+# allen_cmap = {k: v + [1] for k, v in allen_cmap.items()}
+# allen_cmap = {k: [v[0]/255, v[1]/255, v[2]/255, v[3]] for k, v in allen_cmap.items()}
+
+
+
+
 @viewer.mouse_double_click_callbacks.append
 def on_double_click_on_left_viewer(layer, event):
     print(' double_click at left viewer:fectch new roi and generate mask from low resolution and add aux slice')
@@ -229,44 +271,12 @@ def on_double_click_on_left_viewer(layer, event):
     # auxiliary z-slice(center at roi) to better known the loaction of roi
     add_data_in_sub_viewer(ims_vol,indexs,roi_size)
 
-    # _on_refesh_roi(new_mask,new_roi)
-
     mask_classes=np.unique(new_mask)
     print(f"mask id include :{mask_classes}")
 
-    remove_layers_with_patterns(viewer.layers,['roi','mask','plane','points'])
+    # remove_layers_with_patterns(viewer.layers,['roi','mask','plane','points'])
+    _on_refresh_roi2(new_mask,new_roi)
 
-    roi_layer=viewer.add_image(new_roi,contrast_limits=(0,np.percentile(new_roi,99)*1.5),name='roi',visible=False)
-
-    #Todo investigate the true cause of runtime error 
-    # set visible to False of label_layer to Fasle will cause runtime error
-    # but user will need to unvisible the currently unwanted layer by hand
-    # mask_layer=viewer.add_labels(new_mask,name='mask',visible=False)
-    mask_layer=viewer.add_labels(new_mask,name='mask')
-
-
-    roi_plane_layer=viewer.add_image(new_roi, name='roi_plane', depiction='plane',rendering='mip',  blending='additive', opacity=0.6, plane=roi_plane_parameters)
-    mask_plane_layer=viewer.add_labels(new_mask, name='mask_plane', depiction='plane',blending='additive', opacity=0.6, plane=mask_plane_parameters,)
-
-    points_layer = viewer.add_points(data=[],name='points',size=2,face_color='cornflowerblue',ndim=3)
-
-    link_pos_of_plane_layers([roi_plane_layer,mask_plane_layer])
-    viewer.layers.selection=[roi_plane_layer]
-
-    # create the point annotator
-    annotator = PointAnnotator(
-        viewer=viewer,
-        image_layer=roi_plane_layer,
-        mask_layer=mask_plane_layer,
-        points_layer=points_layer,
-        enabled=True,
-        config=config
-    )
-
-    svc_predictor=SvcWidget(viewer,points_layer,mask_layer,config=config)
-
-    # Create a weak reference to monitor the object
-    weakref.finalize(svc_predictor, on_delete)
 
 
 
@@ -296,7 +306,7 @@ def on_double_click_at_sub_viewer(_module,event):
 
         mask=get_hr_mask(lr_mask,roi_offset,roi_size,zoom_factor)
 
-        _on_refesh_roi(mask,roi)
+        _on_refresh_roi2(mask,roi)
         adjust_camera_viewer()
 
 

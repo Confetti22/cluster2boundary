@@ -15,53 +15,12 @@ from segment_anything.modeling import Sam
 from skimage import color, util
 import pprint
 from napari_segment_anything.utils import get_weights_path
-from napari_view_utilis import remove_layers_with_patterns,toggle_layer_visibility
+from napari_view_utilis import _filter_layer_name_with_pattern, remove_layers_with_patterns,toggle_layer_visibility
 
 from typing import List
 import sys
 import pprint
             
-
-def annotate_volume_within_spheres_around_pts( annotation_points, labels, radius)->np.ndarray:
-    """
-    it's function has been validated!
-    Annotates a 3D volume with labels at specified points, applying labels within a sphere around each point.
-
-    Parameters:
-    - volume: 3D numpy array of shape (Z, Y, X) representing the origin label volume.
-    - annotation_points: List of annotation points where each point is a tuple or list (z, y, x).
-    - labels: List of labels corresponding to each annotation point, same length as annotation_points.
-    - radius: Radius (in pixels) for annotating vicinity points.
-
-    Returns:
-    - Annotated 3D volume with updated labels.
-
-    """
-
-    volume=self._mask_layer.data.copy()
-    # Ensure radius is a float for calculations
-    radius = float(radius)
-    
-    # Get shape of the original volume
-    Z, Y, X = volume.shape
-
-    # Create a meshgrid to compute the distance to the annotation points
-    zz, yy, xx = np.meshgrid(
-        np.arange(Z), np.arange(Y), np.arange(X), indexing='ij'
-    )
-
-    
-    for (z, y, x), label in zip(annotation_points, labels):
-        # Calculate the distance of each voxel from the current annotation point
-        distance = np.sqrt((zz - z)**2 + (yy - y)**2 + (xx - x)**2)
-        
-        # Create a mask for all points within the sphere radius
-        sphere_mask = distance <= radius
-        
-        # Apply the label to all points within the sphere
-        volume[sphere_mask] = label
-
-    return volume
 
 def point_color_in_mask(color,mask_layer:napari.layers.Labels):
     #determine the rgb part in a rgba is in a rgba list
@@ -123,6 +82,7 @@ class SvcWidget(Container):
     def __init__(
             self, 
             viewer: napari.Viewer,
+            sub_viewer: napari.Viewer,
             pts_layer:napari.layers.Points, 
             mask_layer:napari.layers.Labels,
             model_type:str = "default",
@@ -131,6 +91,7 @@ class SvcWidget(Container):
         super().__init__()
 
         self._viewer = viewer
+        self.sub_viewer=sub_viewer
 
         self._pts_layer=pts_layer #for getting user annotation points
         self._pts_layer.events.data.connect(self._on_pts_change_run)
@@ -212,6 +173,48 @@ class SvcWidget(Container):
         anno_labels=np.array(anno_labels)
         return points,anno_labels
 
+    def _annotate_volume_within_spheres_around_pts( self,annotation_points, labels, radius)->np.ndarray:
+        """
+        it's function has been validated!
+        Annotates a 3D volume with labels at specified points, applying labels within a sphere around each point.
+
+        Parameters:
+        - volume: 3D numpy array of shape (Z, Y, X) representing the origin label volume.
+        - annotation_points: List of annotation points where each point is a tuple or list (z, y, x).
+        - labels: List of labels corresponding to each annotation point, same length as annotation_points.
+        - radius: Radius (in pixels) for annotating vicinity points.
+
+        Returns:
+        - Annotated 3D volume with updated labels.
+
+        """
+
+        volume=self._mask_layer.data.copy()
+        # Ensure radius is a float for calculations
+        radius = float(radius)
+        
+        # Get shape of the original volume
+        Z, Y, X = volume.shape
+
+        # Create a meshgrid to compute the distance to the annotation points
+        zz, yy, xx = np.meshgrid(
+            np.arange(Z), np.arange(Y), np.arange(X), indexing='ij'
+        )
+
+        
+        for (z, y, x), label in zip(annotation_points, labels):
+            # Calculate the distance of each voxel from the current annotation point
+            distance = np.sqrt((zz - z)**2 + (yy - y)**2 + (xx - x)**2)
+            
+            # Create a mask for all points within the sphere radius
+            sphere_mask = distance <= radius
+            
+            # Apply the label to all points within the sphere
+            volume[sphere_mask] = label
+
+        return volume
+
+
     def _load_model(self) -> None:
         paras=self._config["svc_parameters"]
 
@@ -237,7 +240,7 @@ class SvcWidget(Container):
     # train_svm
 
     
-    def _on_pts_change_run(self, event:Event,trigger_points_num=3) -> None:
+    def _on_pts_change_run(self, event:Event,trigger_points_num=5) -> None:
         print(f"\n \n _on_pts_change: event is {event.source}")
         points = self._pts_layer.data
         print(f"condition:{len(points) % trigger_points_num != 0}")
@@ -251,11 +254,8 @@ class SvcWidget(Container):
         #for points layer, coords in data and world are the same
         points,anno_labels=self._preprocess_anno_points()
 
-        new_mask=annotate_volume_within_spheres_around_pts( points, anno_labels, radius=4)
+        new_mask=self._annotate_volume_within_spheres_around_pts( points, anno_labels, radius=4)
         
-        self._viewer.add_labels(new_mask,name='train_data')
-        self._viewer.add_labels(new_mask,name='train_data_plane',depiction='plane',blending='additive',opacity=0.7,plane=self._config['mask_plane_parameters'])
-
 
 
         # print(f'type of classes before anno are{np.unique(self._mask_layer.data)}')
@@ -265,11 +265,20 @@ class SvcWidget(Container):
             Y=new_mask.ravel()
         )
 
+        #TODO :update svc_pred_mask in the sub_viewer:
+        # z_range=svc_pred_mask.shape[0]
+        # svc_pred_mid_plane=svc_pred_mask[int(z_range//2),:,:]
+        # sub_anno_layer_name=_filter_layer_name_with_pattern(self.sub_viewer.layers,name_patterns=['aux_slice_mask'])
+        # ori_sub_anno=self.sub_viewer.layers[sub_anno_layer_name].data
+        # updated_sub_anno = ori_sub_anno.copy()
+        # updated_sub_anno 
+
+
 
         # print(f"svc_pred_mask={svc_pred_mask}")
 
-        self._viewer.add_labels(svc_pred_mask,name='svc_mask')
         self._viewer.add_labels(svc_pred_mask,name='svc_mask_plane',depiction='plane',blending='additive',opacity=0.7,plane=self._config['mask_plane_parameters'])
+        self._viewer.add_labels(svc_pred_mask,name='svc_mask',visible=False)
         self._viewer.layers.selection=[self._viewer.layers['roi_plane']]
 
 

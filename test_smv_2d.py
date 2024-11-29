@@ -31,10 +31,63 @@ for idx, mask in enumerate(mask_list):
     for label  in labels:
         center = center_of_mass(mask == label)
         plt.text(center[1], center[0], str(label), color='red', fontsize=12, 
-
                  ha='center', va='center', fontweight='bold')
     
     plt.show()
+#%%
+################test of a way to smooth interpolate############
+label=label_lst[4]
+# label=np.array([[1,0,0],
+#        [1,1,0],
+#        [1,1,1]])
+
+print(f"shape of origin mask {label.shape}")
+plt.figure()
+plt.imshow(label)
+plt.title("origin mask")
+
+import numpy as np
+from scipy.ndimage import distance_transform_edt, zoom
+from skimage.segmentation import watershed
+
+def upsample_mask(mask1, scale_factor):
+    # Get unique labels
+    unique_labels = np.unique(mask1)
+    
+    # Prepare the high-resolution mask
+    high_res_shape = (np.array(mask1.shape) * np.array(scale_factor)).astype(int)
+    high_res_mask = np.zeros(high_res_shape, dtype=np.int32)
+    
+    for label in unique_labels:
+        if label == 0:  # Skip background
+            continue
+        # Create binary mask for the current label
+        binary_mask = (mask1 == label).astype(np.float32)
+        
+        # Upsample the binary mask using zoom
+        upsampled_binary = zoom(binary_mask, scale_factor, order=1)
+
+ 
+        # Use watershed segmentation to refine boundaries
+        markers = (upsampled_binary > 0.5).astype(np.int32)
+        # distance = distance_transform_edt(upsampled_binary > 0.5)
+        # refined_region = watershed(-distance, markers, mask=(upsampled_binary > 0))
+        # high_res_mask[refined_region > 0] = label
+        high_res_mask[markers > 0] = label
+    
+    return high_res_mask
+
+high_res_mask=upsample_mask(label,4)
+plt.figure()
+plt.imshow(high_res_mask)
+plt.title("high_res_mask")
+direct_zoomed_mask=zoom(label,zoom=4,order=3)
+plt.figure()
+plt.imshow(direct_zoomed_mask)
+plt.title("direct zoomed_mask")
+
+
+################end  of a way to smooth interpolate############
 
 
 #%%

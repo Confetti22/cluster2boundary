@@ -24,7 +24,7 @@ config = {
     },
     "svc_parameters":{
         "C" : 5,
-        "gamma" : 0.005,
+        "gamma" : 0.05,
         "kernel" : 'rbf',
         "classweight" : None,
         "norm" : True,
