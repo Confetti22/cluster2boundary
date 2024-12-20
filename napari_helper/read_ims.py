@@ -60,22 +60,37 @@ class Ims_Image():
         return padded
 
 
-    def from_slice(self,index,level,index_pos=0):
+    def from_slice(self,index,level,index_pos=0,mip_thick = 1):
         """
         index_pos: 0 for z_slice, 1 for y_slice, 2 for x_slice
+        mip_thick ==1 will only cut a plane
+        for mip_thick > 1 , will acquire mip 
         """
         lb = self.rois[level][0:3] 
         hb = [i+j for i,j in zip(self.rois[level][:3],self.rois[level][3:])]
         assert lb[index_pos] <= index < hb[index_pos], \
             f"Index {index} out of range for axis {index_pos}. Must be between {lb[index_pos]} and {hb[index_pos] - 1}."
+        
+        half_thick = int(mip_thick//2)
+        if half_thick == 0: #for mip_thick == 1, which is just a cut plane of one pixel thickness
+            l_idx = index
+            r_idx = index +1
+        else: # for mip_thick > 1, which will apply mip to acquire one pixel plane
+            l_idx = index - half_thick
+            r_idx = index + half_thick
+            if mip_thick % 2 ==1: # for odd mip_thickness
+                r_idx += 1
             
         # Slicing the 3D array based on the given index and axis
         if index_pos == 0:  # Slice along the z-axis (extract a z_slice)
-            slice_2d = self.images[level][index, lb[1]:hb[1], lb[2]:hb[2]]
+            slice_2d = self.images[level][l_idx:r_idx, lb[1]:hb[1], lb[2]:hb[2]]
+            slice_2d = np.max(slice_2d,axis=0)
         elif index_pos == 1:  # Slice along the y-axis (extract a y_slice)
-            slice_2d = self.images[level][lb[0]:hb[0], index, lb[2]:hb[2]]
+            slice_2d = self.images[level][lb[0]:hb[0], l_idx:r_idx, lb[2]:hb[2]]
+            slice_2d = np.max(slice_2d,axis=1)
         elif index_pos == 2:  # Slice along the x-axis (extract an x_slice)
-            slice_2d = self.images[level][lb[0]:hb[0], lb[1]:hb[1], index]
+            slice_2d = self.images[level][lb[0]:hb[0], lb[1]:hb[1],  l_idx:r_idx]
+            slice_2d = np.max(slice_2d,axis=2)
         else:
             raise ValueError(f"Invalid index_pos {index_pos}. Must be 0 (z), 1 (y), or 2 (x).")
         # Remove any extra dimensions
