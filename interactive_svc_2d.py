@@ -102,15 +102,14 @@ def add_data_in_sub_viewer(ims_vol,hr_indexs,hr_roi_size):
 
     sub_viewer=viewer.window._dock_widgets['sub_viewer'].widget().viewer_model1
 
-    #remove out old aux_slice and it's label
+    #remove out old aux_slice and it's label and polygon
     remove_layers_with_patterns(sub_viewer.layers,['aux','polygon'])
 
 
-    slice_name=f'aux_slice{ori_z_idx}'
     #need to adjust contrast_limit, and using max as upper_bound is almost black, then choose mean
-    sub_viewer.add_image(aux_z_slice,contrast_limits=(0,np.percentile(aux_z_slice,99)+600),name=slice_name)
+    sub_viewer.add_image(aux_z_slice,name=f'aux_slice{ori_z_idx}',contrast_limits=(0,np.percentile(aux_z_slice,99)+600))
     sub_viewer.add_labels(slice_mask,name=f'aux_slice_mask{ori_z_idx}',opacity=0.4,)
-    sub_viewer.add_shapes(roi_polygon,name='polygon',edge_width=2,edge_color='cyan',opacity =0.27)
+    sub_viewer.add_shapes(roi_polygon,name='polygon',edge_width=1,edge_color='cyan',opacity =0.27)
 
     #adjust camera in sub_viewer
     sub_viewer.camera.zoom=2
@@ -324,10 +323,13 @@ def on_double_click_at_sub_viewer(_module,event):
     #draw new roi hint in aux_slice
     mouse_pos=sub_viewer.cursor.position
     global apply_roi_mip 
+    global two_dim_downsample_level
     
     if any(key.name.startswith('aux') for key in sub_viewer.layers): 
-        layer_name=sub_viewer.layers[0].name
-        slice_idx = int(layer_name.split('aux_slice')[-1])
+        
+        for key in sub_viewer.layers:
+            if key.name.startswith('aux_slice_mask'):
+                slice_idx = int(key.name.split('aux_slice_mask')[-1])
 
         data_coords=sub_viewer.layers[f'aux_slice{slice_idx}'].world_to_data(mouse_pos)
         data_coords=np.round(data_coords).astype(int)
@@ -351,6 +353,19 @@ def on_double_click_at_sub_viewer(_module,event):
 
         # mask=get_mask_from_different_scale(lr_mask,roi_offset,target_roi_size,zoom_factor)
         roi, mask = get_roi_and_mask_mip_defined_indexes(roi_size,roi_offset,level,zoom_factor,apply_roi_mip)
+        
+
+        #refresh polygen that indicate roi
+        idx_ = [ int( idx //(2**two_dim_downsample_level)) for idx in roi_offset]
+        roi_ =  [max(1,int(edge//(2**two_dim_downsample_level))) for edge in roi_size]
+        roi_polygon = np.array( 
+        [
+            [idx_[1]           , idx_[2]],
+            [idx_[1] + roi_[1] , idx_[2]],
+            [idx_[1] + roi_[1] , idx_[2] + roi_[2]],
+            [idx_[1]           , idx_[2] + roi_[2]],
+        ])
+        sub_viewer.layers['polygon'].data = roi_polygon
         
         _on_refresh_roi2(mask,roi)
         adjust_camera_viewer()

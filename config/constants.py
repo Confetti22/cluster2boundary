@@ -14,7 +14,7 @@ config = {
     "apply_roi_mip": True,  #if True, will apply mip along axis 0(z_dim) of roi
     "zoom_factor": 25 / 1,  # atlas_vs/raw_vs
     "roi_offset" : [11411,4847,4049], #if set, will show this defined roi first 
-    "2d_downsample_level":4,
+    "2d_downsample_level": 3,
     
 
     # Plane parameters for ROI and mask
