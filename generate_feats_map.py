@@ -15,6 +15,7 @@ device=torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print(f"device{device}")
 # encoder=get_encoder(device,model_name='inceptionv3')
 encoder=get_encoder(device,model_name=model_name)
+print(encoder)
 summary(encoder,(3,100,100))
 
 

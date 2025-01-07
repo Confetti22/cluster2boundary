@@ -4,5 +4,6 @@
         
         "configurations": [],
         "compounds": []
-    }
+    },
+    "editor.minimap.enabled": false
 }

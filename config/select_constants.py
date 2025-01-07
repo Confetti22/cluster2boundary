@@ -9,7 +9,8 @@ config = {
     "level": 0,
     "channel": 2,
     "roi_size": np.array([128, 128, 128]),  # (z, y, x) order
-    "save_dir": "/home/confetti/mnt/data/processed/t1779/100roi",
+    "save_dir": "/home/confetti/mnt/data/processed/t1779/256roi_sg",
+    "mask_save_dir":"/home/confetti/mnt/data/processed/t1779/256roi_sg_mask",
 
     # Plane parameters for ROI and mask
     "roi_plane_parameters": {

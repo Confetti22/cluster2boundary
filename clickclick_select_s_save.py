@@ -90,13 +90,17 @@ level = config["level"]
 channel = config["channel"]
 roi_size = config["roi_size"]
 save_dir=config['save_dir']
+mask_save_dir  = config['mask_save_dir']
+
+os.makedirs(save_dir,exist_ok=True)
+os.makedirs(mask_save_dir,exist_ok=True)
 
 # Read IMS image 
 ims_vol = Ims_Image(img_pth, channel=channel)
 vol_shape = ims_vol.info[level]['data_shape']
 
 #saved roi number
-cnt=11
+cnt=128
 
 ###### init main napari viewer ########
 ##################################
@@ -115,7 +119,7 @@ viewer = napari.Viewer(ndisplay=3)
 #sub_viewer, can be treated as a viewer
 # sub_viewer=viewer.window._dock_widgets['sub_viewer'].widget().viewer_model1
 
-roi,indexs=ims_vol.get_random_roi(filter=entropy_filter(l_thres=1.4),roi_size=roi_size,level=0)
+roi,indexs=ims_vol.get_random_roi(filter=entropy_filter(l_thres=1.4),roi_size=roi_size,level=0,skip_gap= True)
 print(f"roi start at {indexs} with shape{roi_size}")
 
 # auxiliary z-slice(center at roi) to better known the loaction of roi
@@ -131,7 +135,7 @@ roi_layer=viewer.add_image(roi,contrast_limits=(0,np.percentile(roi,99)*1.5),nam
 def on_double_click_on_left_viewer(layer, event):
     print(' double_click at left viewer:fectch new roi and generate aux slice')
 
-    new_roi,indexs=ims_vol.get_random_roi(filter=entropy_filter(l_thres=1.4),roi_size=roi_size,level=level)
+    new_roi,indexs=ims_vol.get_random_roi(filter=entropy_filter(l_thres=1.4),roi_size=roi_size,level=level,skip_gap= True)
     print(f"roi start at {indexs} with shape{roi_size}")
 
     # auxiliary z-slice(center at roi) to better known the loaction of roi
@@ -181,7 +185,7 @@ def save_roi(_module):
     tif.imwrite(file_name,roi)
     cnt = cnt +1
 
-    new_roi,indexs=ims_vol.get_random_roi(filter=entropy_filter(l_thres=1.4),roi_size=roi_size,level=level)
+    new_roi,indexs=ims_vol.get_random_roi(filter=entropy_filter(l_thres=1.4),roi_size=roi_size,level=level,skip_gap= True)
     print(f"roi start at {indexs} with shape{roi_size}")
     _on_refresh_roi2(new_roi)
 

@@ -14,6 +14,7 @@ import napari
 
 from napari_helper.read_ims import Ims_Image
 from napari_helper._svc_widget import SvcWidget
+from napari_helper.brain_slice_annotation import compute_annotation
 from napari.components.viewer_model import ViewerModel
 from napari.utils.action_manager import action_manager
 from napari_helper.napari_view_utilis import MultipleViewerWidget ,add_point_on_plane,\
@@ -21,8 +22,9 @@ from napari_helper.napari_view_utilis import MultipleViewerWidget ,add_point_on_
 from napari.utils.events import Event
 from napari_threedee.annotators import PointAnnotator
 from config.constants import config
+from visulized_fibertract import get_modified_mask,compute_cuboid_roi
 
-def get_mask_from_different_scale(source_mask,target_indexs,target_roi_size,scale):
+def get_mask_from_different_scale(source_mask,target_indexs,target_roi_size,scale,return_ori_scale_img =False):
     """
     roi is defined via indexs +roi_size
     """
@@ -37,10 +39,12 @@ def get_mask_from_different_scale(source_mask,target_indexs,target_roi_size,scal
     zoom_factors=[t/s for t,s in zip(target_roi_size,source_roi_size)]
     zoomed_mask_roi=zoom(lr_mask_roi,zoom=zoom_factors,order=0)
     zoomed_mask_roi=np.squeeze(zoomed_mask_roi)
+    if return_ori_scale_img:
+        return zoomed_mask_roi, np.squeeze(lr_mask_roi)
+    else:
+        return zoomed_mask_roi
 
-    return zoomed_mask_roi
-
-def get_roi_and_mask_mip_defined_indexes(roi_size,roi_offset,level,zoom_factor,roi_mip_flag=False): 
+def get_roi_and_mask_mip_defined_indexes(roi_size,roi_offset,level,zoom_factor,apply_roi_mip=False): 
     roi=ims_vol.from_roi(coords=[*roi_offset, *roi_size],level=level)
     print(f"roi start at {roi_offset} with shape{roi_size}")
     roi=roi.reshape(*np.squeeze(roi_size))
@@ -70,23 +74,23 @@ def get_roi_and_mask_indexs_mip(roi_size, level, zoom_factor,roi_mip_flag =False
     mask=get_mask_from_different_scale(lr_mask,indexs,target_roi_size,zoom_factor)
     return roi, mask, indexs
 
-def add_data_in_sub_viewer(ims_vol,hr_indexs,hr_roi_size):
+def add_data_in_sub_viewer(ims_vol,left_indexs,left_roi_size):
 
     #get downsampled_idx and roi_size in 2d cornoral slice from hr_indexs and hr_roi_size
     #then get the cornoral slice as aux_z_slice
-    down_factor = 2**two_dim_downsample_level
-    downsampled_idx = [ int( idx //down_factor) for idx in hr_indexs]
-    downsampled_roi_size = [ max(int(edge//down_factor) ,1)for edge in hr_roi_size]
-    downsampled_z_idx = downsampled_idx[0] + downsampled_roi_size[0]//2
+    zoom_factor_two_viewers = 2**(level - two_dim_downsample_level)
+    right_idx = [ int( idx * zoom_factor_two_viewers) for idx in left_indexs]
+    right_roi_size = [ max(int(edge * zoom_factor_two_viewers) ,1)for edge in left_roi_size]
+    right_z_idx = right_idx[0] + right_roi_size[0]//2
     
     start = time.time()
-    aux_z_slice=ims_vol.from_slice(downsampled_z_idx,level=two_dim_downsample_level,index_pos=0,mip_thick=mip_thickness//(2**two_dim_downsample_level))
+    aux_z_slice=ims_vol.from_slice(right_z_idx,level=two_dim_downsample_level,index_pos=0,mip_thick=mip_thickness//(2**two_dim_downsample_level))
     print(f"load 2d slice time {time.time()-start}")
 
     start = time.time()
     #render the roi border at z_slice by draw a 2d cube
-    idx_ =downsampled_idx
-    roi_ = downsampled_roi_size
+    idx_ =right_idx
+    roi_ = right_roi_size
     roi_polygon = np.array( 
         [
             [idx_[1]           , idx_[2]],
@@ -95,25 +99,54 @@ def add_data_in_sub_viewer(ims_vol,hr_indexs,hr_roi_size):
             [idx_[1]           , idx_[2] + roi_[2]],
         ])
 
-    ori_z_idx=hr_indexs[0]+hr_roi_size[0]//2
+    ori_z_idx=left_indexs[0]+left_roi_size[0]//2
     hr_slice_shape=ims_vol.rois[level + two_dim_downsample_level][-2:]
 
-    slice_mask=get_mask_from_different_scale(lr_mask,target_indexs=[downsampled_z_idx,0,0],target_roi_size=[1,*hr_slice_shape],scale=zoom_factor / (2**two_dim_downsample_level))
+    slice_mask, lr_slice_mask=get_mask_from_different_scale(lr_mask,
+                                                            target_indexs=[right_z_idx,0,0],
+                                                            target_roi_size=[1,*hr_slice_shape],
+                                                            scale=zoom_factor / (2**two_dim_downsample_level),
+                                                            return_ori_scale_img=True,
+                                                            )
+    #compute region annotation
+    if SHOW_ANNO:
+        region_centers, region_annotations = compute_annotation(lr_slice_mask,acronym)
+        region_centers = region_centers.astype(float)
+        region_centers *= zoom_factor / (2**two_dim_downsample_level)
+        
 
     sub_viewer=viewer.window._dock_widgets['sub_viewer'].widget().viewer_model1
 
     #remove out old aux_slice and it's label and polygon
-    remove_layers_with_patterns(sub_viewer.layers,['aux','polygon'])
+    remove_layers_with_patterns(sub_viewer.layers,['aux','polygon','region_annotation'])
 
 
     #need to adjust contrast_limit, and using max as upper_bound is almost black, then choose mean
     sub_viewer.add_image(aux_z_slice,name=f'aux_slice{ori_z_idx}',contrast_limits=(0,np.percentile(aux_z_slice,99)+600))
-    sub_viewer.add_labels(slice_mask,name=f'aux_slice_mask{ori_z_idx}',opacity=0.4,)
-    sub_viewer.add_shapes(roi_polygon,name='polygon',edge_width=1,edge_color='cyan',opacity =0.27)
+    sub_viewer.add_labels(slice_mask,name=f'aux_slice_mask{ori_z_idx}',opacity= opacity,)
+    sub_viewer.add_shapes(roi_polygon,name='polygon',edge_width=1,edge_color='cyan',opacity =opacity)
+    if SHOW_ANNO:
+        sub_viewer.add_points(
+            region_centers,
+            properties={"label": region_annotations},
+            text={
+                "string": "{label}",
+                "anchor": "center",
+                "color": "orange",
+                "size": 8,
+            },
+            size=4,
+            face_color="transparent",
+            edge_color= 'transparent',
+            name="region_annotation_id",
+        )
+
+
+    #add annotation on each region
 
     #adjust camera in sub_viewer
     sub_viewer.camera.zoom=2
-    sub_viewer.camera.center=(0,downsampled_idx[1],downsampled_idx[2])
+    sub_viewer.camera.center=(0,right_idx[1],right_idx[2])
     print(f"total time {time.time() - start}")
 
 
@@ -138,54 +171,33 @@ def _on_refresh_roi2(new_mask,new_roi):
 
     viewer.layers['points'].data=[]
 
+    viewer.layers['roi_plane'].data=new_roi
+    viewer.layers['mask_plane'].data=new_mask
+    viewer.layers.selection=[roi_layer]
 
 
-def _on_refesh_roi(new_mask,new_roi):
-
-    mask_classes=np.unique(new_mask)
-    print(f"mask id include :{mask_classes}")
-
-    remove_layers_with_patterns(viewer.layers,['roi','mask','plane','points'])
-
-    roi_layer=viewer.add_image(new_roi,contrast_limits=(0,np.percentile(new_roi,99)*1.5),name='roi',visible=False)
-
-    #Todo investigate the true cause of runtime error 
-    # set visible to False of label_layer to Fasle will cause runtime error
-    # but user will need to unvisible the currently unwanted layer by hand
-    # mask_layer=viewer.add_labels(new_mask,name='mask',visible=False)
-    mask_layer=viewer.add_labels(new_mask,name='mask',visible=False)
-
-
-    roi_plane_layer=viewer.add_image(new_roi, name='roi_plane', depiction='plane',rendering='mip',  blending='additive', opacity=0.6, plane=roi_plane_parameters)
-    mask_plane_layer=viewer.add_labels(new_mask, name='mask_plane', depiction='plane',blending='additive', opacity=0.6, plane=mask_plane_parameters,)
-
-    points_layer = viewer.add_points(data=[],name='points',size=2,face_color='cornflowerblue',ndim=3)
-
-    link_pos_of_plane_layers([roi_plane_layer,mask_plane_layer])
-    viewer.layers.selection=[roi_plane_layer]
-
-    # create the point annotator
-    annotator = PointAnnotator(
-        viewer=viewer,
-        image_layer=roi_plane_layer,
-        mask_layer=mask_plane_layer,
-        points_layer=points_layer,
-        enabled=True,
-        config=config
-    )
-
-    svc_predictor=SvcWidget(viewer,points_layer,mask_layer,config=config)
-
-    # Create a weak reference to monitor the object
-    weakref.finalize(svc_predictor, on_delete)
 
 def mip(roi, mip_flag = False):
-    if mip_flag:
+    if mip_flag:    
         roi = np.max(roi, axis=0)
     else:
         roi = roi
     roi = np.squeeze(roi)
     return roi
+
+def get_offset_and_ori_size_warp_region_half(lr_mask,zoom_factor,navagation_region,margin_ratio = 0.15):
+    """
+    for one acronym at a time
+    acronym ->id -->boundary of region +20% as margin 
+    --> lr_ori_offset ,lr_ori_shape -[zoom]-> offset, shape
+    """
+    
+    mask = get_modified_mask(navagation_region,lr_mask,half=True)
+    lr_offset,lr_roi = compute_cuboid_roi(mask,margin_ratio= margin_ratio)
+    print(f"In low resol, shape of {navagation_region} is {lr_roi}, offset is {lr_offset}")
+    offset = [int(zoom_factor*item) for item in lr_offset]
+    roi_size = [int(zoom_factor*item) for item in lr_roi]
+    return offset,roi_size
 
 
 # Load configuration values
@@ -201,10 +213,35 @@ roi_plane_parameters = config["roi_plane_parameters"]
 mask_plane_parameters = config["mask_plane_parameters"]
 mip_thickness = config['mip_thickness']
 roi_offset = config.get('roi_offset')
+
+opacity = config['opacity']
+SHOW_ANNO= config['SHOW_ANNO']
+acronym = config['acronym']
+show_region_lst = config['show_regions']
+
 # Read IMS image and TIFF mask
 ims_vol = Ims_Image(img_pth, channel=channel)
 lr_mask = tif.imread(mask_pth)
+
+#for navigation region
+navigation_region = config['navigation_region']
+if navigation_region:
+    roi_offset, roi_size = get_offset_and_ori_size_warp_region_half(lr_mask,zoom_factor,navigation_region,margin_ratio=0.15)
+
+
+lr_mask = get_modified_mask(show_region_lst,lr_mask)
+
 hr_vol_shape = ims_vol.info[level]['data_shape']
+
+save_dir=config['save_dir']
+save_mask = config['save_mask']
+os.makedirs(save_dir,exist_ok=True)
+
+if save_mask:
+    mask_save_dir = config['mask_save_dir']
+    os.makedirs(mask_save_dir,exist_ok=True)
+cnt = config['cnt']
+
 
 
 
@@ -255,16 +292,21 @@ else :
 mask_classes=np.unique(mask)
 print(f"mask id include :{mask_classes}")
 
-roi_layer=viewer.add_image(roi,contrast_limits=(0,np.percentile(roi,99)*1.5),name='roi',visible=True)
+roi_layer=viewer.add_image(roi,name='roi',contrast_limits=(0,np.percentile(roi,99)*1.5),visible=True)
 
 #Todo investigate the true cause of runtime error 
 # set visible to False of label_layer to Fasle will cause runtime error
 # but user will need to unvisible the currently unwanted layer by hand
 # mask_layer=viewer.add_labels(new_mask,name='mask',visible=False)
-mask_layer=viewer.add_labels(mask,name='mask',visible=False)
-
+mask_layer=viewer.add_labels(mask,name='mask',visible= True)
 points_layer = viewer.add_points(data=[],name='points',size=2,face_color='cornflowerblue',ndim=2)
 
+roi_plane_layer=viewer.add_image(roi, name='roi_plane', depiction='plane',rendering='mip', 
+                                  blending='additive', visible=False,opacity= opacity, plane=roi_plane_parameters)
+mask_plane_layer=viewer.add_labels(mask, name='mask_plane', depiction='plane',
+                                   blending='additive', visible=False,opacity=opacity, plane=mask_plane_parameters,)
+link_pos_of_plane_layers([roi_plane_layer,mask_plane_layer])
+viewer.layers.selection=[roi_layer]
 
 # create the point annotator
 annotator = PointAnnotator(
@@ -308,7 +350,6 @@ def on_double_click_on_left_viewer(layer, event):
 
     # refresh the data of roi_layer and mask_layer
     _on_refresh_roi2(new_mask,new_roi)
-
 
 
 
@@ -371,10 +412,33 @@ def on_double_click_at_sub_viewer(_module,event):
         adjust_camera_viewer()
 
 
+
+
+
+@viewer.bind_key('s')
+def save_roi(_module):
+    global cnt
+    print(f'press \'s\' at  {_module}')
+    roi = viewer.layers['roi'].data
+
+    file_name = f'{save_dir}/{cnt:04d}.tif'
+
+    tif.imwrite(file_name,roi)
+    cnt = cnt +1
+
+    if save_mask:
+        mask = viewer.layers['mask'].data
+        mask_name = f'{mask_save_dir}/{cnt:04d}.tif'
+        tif.imwrite(mask_name,mask)
+    print(f"{file_name} has been saved ")
+    
+
+
+
 @sub_viewer.bind_key('v')
 def toggle_mask_sub_viewer(_module):
     print(f'press \'v\' at  {_module}')
-    toggle_layer_visibility(layers=sub_viewer.layers,name_patterns=['mask'])
+    toggle_layer_visibility(layers=sub_viewer.layers,name_patterns=['mask','region'])
 
 def toggle_mask(viewer_model: napari.components.viewer_model.ViewerModel):
     print(f'press \'v\' at  {viewer_model}')

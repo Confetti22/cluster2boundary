@@ -1,6 +1,7 @@
 import numpy as np
 import h5py
 import tifffile as tif
+import random
 
 class Ims_Image():
     '''
@@ -162,24 +163,48 @@ class Ims_Image():
                     filter=lambda x:np.mean(x)>=150,
                     roi_size=(64,64,64),
                     level=0,
+                    skip_gap = False,
                     ):
 
         """
-        random sample a roi of size (z_extend,y_extend,x_extend) 
+        random sample a roi of size (z_extend,y_extend,x_extend) that pass the filter check
         """
         foreground_sample_flag=False
         #shape: (z,y,x)
         info=self.get_info()
         shape=info[level]['data_shape']
 
+        if skip_gap:
+            #for skipping the gap between slices
+            start = 5
+            end = 166
+            step = 300
+            limit = shape[0]-roi_size[0] 
+            intervals = []
+            current_start = start
+            current_end = end
+        
+            # Generate intervals
+            while current_end <= limit:
+                intervals.append((current_start, current_end))
+                current_start += step
+                current_end += step
+        
+
         while not foreground_sample_flag:
 
-            z_idx=np.random.randint(0,shape[0]-roi_size[0]) 
+            if skip_gap:
+                chosen_interval = random.choice(intervals)
+                z_idx = random.randint(chosen_interval[0],chosen_interval[1])
+            else:
+                z_idx=np.random.randint(0,shape[0]-roi_size[0]) 
             y_idx=np.random.randint(0,shape[1]-roi_size[1]) 
             x_idx=np.random.randint(0,shape[2]-roi_size[2]) 
             roi=self.from_roi(coords=[z_idx,y_idx,x_idx,roi_size[0],roi_size[1],roi_size[2]],level=level)
             roi=roi.reshape(roi_size[0],roi_size[1],roi_size[2])
             roi=np.squeeze(roi)
+            
+            #filter check
             foreground_sample_flag=filter(roi)
 
         return roi, [z_idx,y_idx,x_idx]
