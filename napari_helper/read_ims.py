@@ -164,25 +164,34 @@ class Ims_Image():
                     roi_size=(64,64,64),
                     level=0,
                     skip_gap = False,
+                    sample_range = None,
+                    margin = 128, #sampled roi will be within the interior of index 
                     ):
 
         """
         random sample a roi of size (z_extend,y_extend,x_extend) that pass the filter check
+        return the start indexes
         """
         foreground_sample_flag=False
         #shape: (z,y,x)
         info=self.get_info()
-        shape=info[level]['data_shape']
+        sample_lb = [0,0,0]
+        sample_rb=info[level]['data_shape']
+        if sample_range:
+            sample_lb = [idx_range[0] for idx_range in sample_range]
+            sample_rb = [ idx_range[1] for idx_range in sample_range]
 
         if skip_gap:
             #for skipping the gap between slices
             start = 5
-            end = 166
             step = 300
-            limit = shape[0]-roi_size[0] 
+            end = step - start - roi_size[0] 
+            limit = sample_rb[0]-roi_size[0] - margin 
             intervals = []
-            current_start = start
-            current_end = end
+            
+            #add one step to skip the fist z slice
+            current_start = start + sample_lb[0]
+            current_end = end + sample_lb[0]
         
             # Generate intervals
             while current_end <= limit:
@@ -197,9 +206,9 @@ class Ims_Image():
                 chosen_interval = random.choice(intervals)
                 z_idx = random.randint(chosen_interval[0],chosen_interval[1])
             else:
-                z_idx=np.random.randint(0,shape[0]-roi_size[0]) 
-            y_idx=np.random.randint(0,shape[1]-roi_size[1]) 
-            x_idx=np.random.randint(0,shape[2]-roi_size[2]) 
+                z_idx=np.random.randint(sample_lb[0] + margin ,sample_rb[0]-roi_size[0] - margin) 
+            y_idx=np.random.randint(sample_lb[1] + margin ,sample_rb[1]-roi_size[1] - margin) 
+            x_idx=np.random.randint(sample_lb[2] + margin ,sample_rb[2]-roi_size[2] - margin) 
             roi=self.from_roi(coords=[z_idx,y_idx,x_idx,roi_size[0],roi_size[1],roi_size[2]],level=level)
             roi=roi.reshape(roi_size[0],roi_size[1],roi_size[2])
             roi=np.squeeze(roi)
@@ -208,5 +217,39 @@ class Ims_Image():
             foreground_sample_flag=filter(roi)
 
         return roi, [z_idx,y_idx,x_idx]
+    
+    def sample_within_range(
+                        self,
+                        center,
+                        radius,
+                        filter=lambda x:np.mean(x)>=150,
+                        roi_size=(64,64,64),
+                        level=0,
+                        skip_gap = False,
+                        margin = 128, #sampled roi will be within the interior of index 
+                        ):
+        foreground_sample_flag=False
+
+        idx_range = [ [idx - radius, idx + radius] for idx in center]
+
+        while not foreground_sample_flag:
+
+            z_idx = np.random.randint(idx_range[0][0],idx_range[0][1])
+            y_idx = np.random.randint(idx_range[1][0],idx_range[1][1])
+            x_idx = np.random.randint(idx_range[2][0],idx_range[2][1])
+        
+            roi=self.from_roi(coords=[z_idx,y_idx,x_idx,roi_size[0],roi_size[1],roi_size[2]],level=level)
+            roi=roi.reshape(roi_size[0],roi_size[1],roi_size[2])
+            roi=np.squeeze(roi)
+            
+            #filter check
+            foreground_sample_flag=filter(roi)
+        
+        sampled_idx = np.array([z_idx,y_idx,x_idx])
+        l2_dist = np.linalg.norm(sampled_idx - center)
+        print(f"sampled distance:{l2_dist}")
+        return roi , l2_dist
+
+
 
 

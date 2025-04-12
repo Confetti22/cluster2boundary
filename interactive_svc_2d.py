@@ -166,6 +166,8 @@ def on_delete():
 # Create a weak reference to monitor the object
 def _on_refresh_roi2(new_mask,new_roi):
     viewer.layers['roi'].data=new_roi
+    entropy = shannon_entropy(new_roi)
+    print(f"entropy of the roi is {entropy:.3f}")
     viewer.layers['roi'].contrast_limits=(0,np.percentile(new_roi,99)*1.5)
     viewer.layers['mask'].data=new_mask
 
@@ -237,9 +239,6 @@ save_dir=config['save_dir']
 save_mask = config['save_mask']
 os.makedirs(save_dir,exist_ok=True)
 
-if save_mask:
-    mask_save_dir = config['mask_save_dir']
-    os.makedirs(mask_save_dir,exist_ok=True)
 cnt = config['cnt']
 
 
@@ -293,6 +292,7 @@ mask_classes=np.unique(mask)
 print(f"mask id include :{mask_classes}")
 
 roi_layer=viewer.add_image(roi,name='roi',contrast_limits=(0,np.percentile(roi,99)*1.5),visible=True)
+# roi_layer=viewer.add_image(roi,name='roi',visible=True)
 
 #Todo investigate the true cause of runtime error 
 # set visible to False of label_layer to Fasle will cause runtime error
@@ -424,12 +424,12 @@ def save_roi(_module):
     file_name = f'{save_dir}/{cnt:04d}.tif'
 
     tif.imwrite(file_name,roi)
-    cnt = cnt +1
 
     if save_mask:
         mask = viewer.layers['mask'].data
-        mask_name = f'{mask_save_dir}/{cnt:04d}.tif'
-        tif.imwrite(mask_name,mask)
+        mask_save_path = f'{save_dir}/mask_{cnt:04d}.tif'
+        tif.imwrite(mask_save_path,mask)
+    cnt = cnt +1
     print(f"{file_name} has been saved ")
     
 

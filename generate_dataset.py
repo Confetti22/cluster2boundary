@@ -33,33 +33,41 @@ def get_mask_from_different_scale(source_mask,target_indexs,target_roi_size,scal
 
     return zoomed_mask_roi
 
-save_dir="/home/confetti/mnt/data/processed/t1779/256roi_sg"
-mask_save_dir="/home/confetti/mnt/data/processed/t1779/256roi_sg_mask"
+MASK = False
+save_dir="/home/confetti/data/t1779/4096_roi_sg"
 os.makedirs(save_dir,exist_ok=True)
-os.makedirs(mask_save_dir,exist_ok=True)
+
+if MASK:
+    mask_save_dir="/home/confetti/mnt/data/processed/t1779/256roi_sg_mask"
+    os.makedirs(mask_save_dir,exist_ok=True)
+    mask_path = "/home/confetti/mnt/data/processed/t1779/r32_ims_downsample_561_register/registered_atlas.tiff"
+    lr_mask = tif.imread(mask_path)
+
+
+
 image_path = "/home/confetti/mnt/data/processed/t1779/t1779.ims"
-mask_path = "/home/confetti/mnt/data/processed/t1779/r32_ims_downsample_561_register/registered_atlas.tiff"
-lr_mask = tif.imread(mask_path)
 level = 0
 channel = 2
-roi_size =(128,128,128)
+roi_size =(64,64,64)
 zoom_factor = 25/1
-amount = 10 
+amount = 4096 
 cnt = 1
+sample_range = [[4000,7000],[0,5000],[0,7000]]
 
 ims_vol = Ims_Image(image_path, channel=channel)
 vol_shape = ims_vol.info[level]['data_shape']
 
 while cnt < amount:
 
-    roi,indexs=ims_vol.get_random_roi(filter=entropy_filter(l_thres=4),roi_size=roi_size,level=0,skip_gap= True)
-    mask=get_mask_from_different_scale(lr_mask,indexs,roi_size,zoom_factor)
+    roi,indexs=ims_vol.get_random_roi(filter=entropy_filter(l_thres=4),roi_size=roi_size,level=0,skip_gap = True,sample_range=sample_range)
     file_name = f"{save_dir}/{cnt:04d}.tif"
-    mask_name = f"{mask_save_dir}/{cnt:04d}.tif"
     tif.imwrite(file_name,roi)
-    tif.imwrite(mask_name,mask)
-    print(f"{file_name} and mask has been saved ")
+    print(f"{file_name} has been saved ")
     cnt = cnt +1
+    if MASK:
+        mask=get_mask_from_different_scale(lr_mask,indexs,roi_size,zoom_factor)
+        mask_name = f"{mask_save_dir}/{cnt:04d}.tif"
+        tif.imwrite(mask_name,mask)
 
 
 
